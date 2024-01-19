@@ -97,11 +97,11 @@ void TDBQuery::exitWithError(const QString &msg)
     emit finished();
 }
 
-static int connectionNumberValue = 0;
-static QMutex mutex;
-
 int TDBQuery::connectionNumber()
 {
+    static int connectionNumberValue = 0;
+    static QMutex mutex;
+
     QMutexLocker locker(&mutex);
 
     return ++connectionNumberValue;

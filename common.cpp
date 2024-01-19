@@ -27,7 +27,7 @@ void Common::writeLogFile(const QString& prefix, const QString& msg)
     {
         if (!logDir.mkdir(logDir.absolutePath()))
         {
-            qCritical() << QString("%1(!)Cannot make log dir: %2").arg(QDateTime::currentDateTime().toString(TIME_FORMAT))
+            qCritical() << QString("%1 (!)Cannot make log dir: %2").arg(QDateTime::currentDateTime().toString(TIME_FORMAT))
                            .arg(logDir.absolutePath());
             return;
         }
@@ -42,7 +42,7 @@ void Common::writeLogFile(const QString& prefix, const QString& msg)
     }
     else
     {
-        qCritical() << QString("%1(!) Message not save to log file: %2 Error: %3 Message: %4 %5").arg(QDateTime::currentDateTime().toString(TIME_FORMAT))
+        qCritical() << QString("%1 (!) Message not save to log file: %2 Error: %3 Message: %4 %5").arg(QDateTime::currentDateTime().toString(TIME_FORMAT))
                        .arg(logFileName).arg(file.errorString()).arg(prefix).arg(msg);
     }
 }

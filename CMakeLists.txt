@@ -41,11 +41,11 @@ target_link_libraries(${PROJECT_NAME} Qt${QT_VERSION_MAJOR}::Core)
 #Установка==============================================================================
 #создаем папки
 install(TARGETS ${PROJECT_NAME}
-    LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../lib
-    ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../lib
-    INCLUDES DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../include
+    LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Lib
+    ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Lib
+    INCLUDES DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Headers
 )
 
 #копируем папки
-install(FILES ${HEADER_FILES} DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../include)
+install(FILES ${HEADER_FILES} DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Headers)
 

@@ -78,6 +78,19 @@ TDBLoger::~TDBLoger()
     }
 }
 
+bool TDBLoger::isError() const
+{
+    return _errorString.isEmpty();
+}
+
+QString TDBLoger::errorString()
+{
+    const QString result(_errorString);
+    _errorString.clear();
+
+    return result;
+}
+
 void TDBLoger::start()
 {
     _db = QSqlDatabase::addDatabase(_dbConnectionInfo.db_Driver, _logDBName);
@@ -91,16 +104,38 @@ void TDBLoger::start()
     //подключаемся к БД
     if (!_db.open())
     {
-        emit errorOccurred(EXIT_CODE::SQL_NOT_CONNECT, connectDBErrorString(_db));
+        _errorString = connectDBErrorString(_db);
+
+        emit errorOccurred(EXIT_CODE::SQL_NOT_CONNECT, _errorString);
     };
 }
 
 void TDBLoger::sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg)
 {
+    Q_ASSERT(_db.isOpen());
+
+    if (!_db.isOpen())
+    {
+        const QString saveMsg = QString("%1>%2").arg(msgCodeToQString(category)).arg(msg);
+        _errorString = "Message not save to DB. Log DB is not open";
+
+        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(_errorString);
+        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(saveMsg);
+
+        writeLogFile("NOT SAVE>", saveMsg);
+
+        return;
+    }
+
     if (category == MSG_CODE::CRITICAL_CODE)
     {
         qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(msg);
         writeLogFile("CRITICAL>", msg);
+
+#ifndef WIN32
+        syslog(LOG_CRIT, "%s", msg.toStdString().data());
+#endif
+
     }
     else if (_debugMode)
     {
@@ -153,18 +188,26 @@ void TDBLoger::sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg)
 
     if (!query.exec(queryText))
     {
-        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, executeDBErrorString(_db, query));
+        _errorString = executeDBErrorString(_db, query);
+
         writeLogFile("NO_SAVE_LOG_MSG", msg);
 
         _db.rollback();
+
+        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
 
         return;
     }
 
     if (!_db.commit())
     {
-        errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, commitDBErrorString(_db));
+        _errorString = commitDBErrorString(_db);
+
         writeLogFile("NO_SAVE_LOG_MSG", msg);
+
+        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
+
+        return;
     }
 }
 

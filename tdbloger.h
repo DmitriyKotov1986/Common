@@ -36,6 +36,7 @@ public:
 
     static QString msgCodeToQString(MSG_CODE code);
 
+public:
     TDBLoger() = delete;
     TDBLoger(const TDBLoger& ) = delete;
     TDBLoger& operator=(const TDBLoger& ) = delete;
@@ -43,6 +44,9 @@ public:
     TDBLoger& operator=(const TDBLoger&& ) = delete;
 
     ~TDBLoger();
+
+    bool isError() const;
+    QString errorString();
 
 public slots:
     void start();
@@ -64,6 +68,8 @@ private:
     QSqlDatabase _db;
     const QString _logDBName = "Log";
     bool _debugMode = true;
+
+    QString _errorString;
 
 };
 
