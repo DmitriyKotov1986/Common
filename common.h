@@ -9,7 +9,6 @@
 #include <QFileInfo>
 #include <QtSql/QSqlDatabase>
 #include <QtSql/QSqlQuery>
-#include <QtSql/QSqlError>
 
 namespace Common
 {
@@ -52,8 +51,11 @@ struct DBConnectionInfo
     quint16 db_Port = 0;
 };
 
-static const QString TIME_FORMAT = "hh:mm::ss.zzz";
+static const QString TIME_FORMAT = "hh:mm:ss.zzz";
+static const QString SIMPLY_TIME_FORMAT = "hh:mm:ss";
 static const QString DATETIME_FORMAT = "yyyy-MM-dd hh:mm:ss.zzz";
+
+void messageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg);
 
 bool checkAlreadyRun();
 void exitIfAlreadyRun();

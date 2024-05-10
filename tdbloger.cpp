@@ -18,6 +18,7 @@ using namespace Common;
 
 //static
 static TDBLoger *DBLoger_ptr = nullptr;
+static const qsizetype MAX_MESSAGE_LENGTH = 4000;
 
 TDBLoger* TDBLoger::DBLoger(const DBConnectionInfo& DBConnectionInfo /* = {} */,
                    const QString& logDBName /* = "Log" */,
@@ -80,7 +81,7 @@ TDBLoger::~TDBLoger()
 
 bool TDBLoger::isError() const
 {
-    return _errorString.isEmpty();
+    return !_errorString.isEmpty();
 }
 
 QString TDBLoger::errorString()
@@ -110,17 +111,19 @@ void TDBLoger::start()
     };
 }
 
-void TDBLoger::sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg)
+void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& msg)
 {
     Q_ASSERT(_db.isOpen());
+
+    const QString shortMsg = msg.size() >= MAX_MESSAGE_LENGTH ? msg.left(MAX_MESSAGE_LENGTH - 1) : msg;
 
     if (!_db.isOpen())
     {
         const QString saveMsg = QString("%1>%2").arg(msgCodeToQString(category)).arg(msg);
         _errorString = "Message not save to DB. Log DB is not open";
 
-        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(_errorString);
-        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(saveMsg);
+        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(SIMPLY_TIME_FORMAT)).arg(_errorString);
+        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(SIMPLY_TIME_FORMAT)).arg(saveMsg);
 
         writeLogFile("NOT SAVE>", saveMsg);
 
@@ -129,7 +132,7 @@ void TDBLoger::sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg)
 
     if (category == MSG_CODE::CRITICAL_CODE)
     {
-        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(msg);
+        qCritical() <<  QString("%1 %2").arg(QTime::currentTime().toString(SIMPLY_TIME_FORMAT)).arg(msg);
         writeLogFile("CRITICAL>", msg);
 
 #ifndef WIN32
@@ -139,7 +142,7 @@ void TDBLoger::sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg)
     }
     else if (_debugMode)
     {
-        qDebug() << QString("%1 %2").arg(QTime::currentTime().toString(TIME_FORMAT)).arg(msg);
+        qDebug() << QString("%1 %2").arg(QTime::currentTime().toString(SIMPLY_TIME_FORMAT)).arg(shortMsg);
 
 #ifndef WIN32
         int logLevel = LOG_INFO;
@@ -174,12 +177,19 @@ void TDBLoger::sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg)
 #endif
     }
 
+    if (msg.size() >= MAX_MESSAGE_LENGTH)
+    {
+        const QString saveMsg = QString("%1>%2").arg(msgCodeToQString(category)).arg(msg);
+
+        writeLogFile("MESSAGE TO LONG>", saveMsg);
+    }
+
     const QString queryText =
         QString("INSERT INTO %1 (CATEGORY, SENDER, MSG) VALUES (%2, '%3', '%4')")
             .arg(_logDBName)
             .arg(QString::number(static_cast<int>(category)))
             .arg(QCoreApplication::applicationName())
-            .arg(msg);
+            .arg(shortMsg);
 
     writeDebugLogFile(QString("QUERY TO %1>").arg(_db.connectionName()), queryText);
 

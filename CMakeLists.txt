@@ -36,16 +36,16 @@ add_library(${PROJECT_NAME} STATIC
     ${SOURCE_FILES}
 )
 
-target_link_libraries(${PROJECT_NAME} Qt${QT_VERSION_MAJOR}::Core)
+target_link_libraries(${PROJECT_NAME} Qt${QT_VERSION_MAJOR}::Core Qt${QT_VERSION_MAJOR}::Sql Qt${QT_VERSION_MAJOR}::Network)
 
 #Установка==============================================================================
 #создаем папки
-install(TARGETS ${PROJECT_NAME}
-    LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Lib
-    ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Lib
-    INCLUDES DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Headers
-)
+#install(TARGETS ${PROJECT_NAME}
+#    LIBRARY DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Lib
+#    ARCHIVE DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Lib
+#    INCLUDES DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Headers
+#)
 
 #копируем папки
-install(FILES ${HEADER_FILES} DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Headers)
+#install(FILES ${HEADER_FILES} DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/../Headers)
 

@@ -36,7 +36,6 @@ void THTTPQuery::deleteTHTTPQuery()
 //class
 THTTPQuery::THTTPQuery(const QString& url, QObject* parent)
     : QObject(parent)
-    , _manager()
     , _url(url)
 {
     Q_ASSERT(!url.isEmpty());
@@ -44,12 +43,7 @@ THTTPQuery::THTTPQuery(const QString& url, QObject* parent)
 
 THTTPQuery::~THTTPQuery()
 {
-    if (_manager != nullptr)
-    {
-        watchDocTimeout(); // закрываем все соединения
-
-        _manager->deleteLater();
-    }
+    delete _manager;
 }
 
 void THTTPQuery::send(const QByteArray& data)
@@ -57,7 +51,6 @@ void THTTPQuery::send(const QByteArray& data)
     if (_manager == nullptr)
     {
         _manager = new QNetworkAccessManager(this);
-        _manager->setTransferTimeout(30000);
         QObject::connect(_manager, SIGNAL(finished(QNetworkReply *)),
                          SLOT(replyFinished(QNetworkReply *))); //событие конца обмена данными
     }
@@ -70,21 +63,12 @@ void THTTPQuery::send(const QByteArray& data)
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/xml");
     request.setHeader(QNetworkRequest::UserAgentHeader, QCoreApplication::applicationName());
     request.setHeader(QNetworkRequest::ContentLengthHeader, QString::number(data.size()));
-    request.setTransferTimeout(30000);
 
     QNetworkReply* resp = _manager->post(request, data);
 
     writeDebugLogFile("HTTP request:", QString(data));
 
-    if (resp != nullptr)
-    {
-        QTimer* watchDocTimer = new QTimer();
-        watchDocTimer->setSingleShot(true);
-        QObject::connect(watchDocTimer, SIGNAL(timeout()), SLOT(watchDocTimeout()));
-        _watchDocs.insert(resp, watchDocTimer);
-        watchDocTimer->start(60000);
-    }
-    else
+    if (!resp)
     {
         emit errorOccurred("Send HTTP request fail");
 
@@ -95,7 +79,6 @@ void THTTPQuery::send(const QByteArray& data)
 void THTTPQuery::replyFinished(QNetworkReply *resp)
 {
     Q_ASSERT(resp);
-    Q_ASSERT(_watchDocs.contains(resp));
 
     if (resp->error() == QNetworkReply::NoError)
     {
@@ -107,22 +90,23 @@ void THTTPQuery::replyFinished(QNetworkReply *resp)
     }
     else
     {
-        emit errorOccurred("HTTP request fail. Code: " + QString::number(resp->error()) + " Msg: " + resp->errorString());
+        QByteArray answer;
+        if (resp->isOpen())
+        {
+            answer = resp->readAll();
+        }
+
+        const auto serverCode = resp->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const auto msg = QString("HTTP request fail. Code: %1. Server code: %2. Messasge: %3. Answer: %5")
+                             .arg(QString::number(resp->error()))
+                             .arg(serverCode)
+                             .arg(resp->errorString())
+                              .arg(answer);
+
+        emit errorOccurred(msg);
     }
-    _watchDocs[resp]->stop();
-    _watchDocs[resp]->deleteLater();
-    _watchDocs.remove(resp);
 
     resp->deleteLater();
-    resp = nullptr;
-}
-
-void THTTPQuery::watchDocTimeout()
-{
-    for (auto const& resp : _watchDocs.keys())
-    {
-        resp->abort();
-    }
 }
 
 

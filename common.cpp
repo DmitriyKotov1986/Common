@@ -12,6 +12,8 @@
 #include <QSharedMemory>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QtSql/QSqlError>
+#include <QTextStream>
 
 using namespace Common;
 
@@ -47,7 +49,8 @@ void Common::writeLogFile(const QString& prefix, const QString& msg)
     }
 }
 
-void Common::writeDebugLogFile(const QString& prefix, const QString& msg) {
+void Common::writeDebugLogFile(const QString& prefix, const QString& msg)
+{
     #ifdef QT_DEBUG
         writeLogFile(prefix, msg);
     #endif
@@ -56,6 +59,25 @@ void Common::writeDebugLogFile(const QString& prefix, const QString& msg) {
 void Common::saveLogToFile(const QString& msg)
 {
     writeLogFile("LOG>", msg);
+}
+
+bool Common::connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& connectionInfo, const QString& connectionName)
+{
+    Q_ASSERT(!db.isOpen());
+    Q_ASSERT(!connectionInfo.db_DBName.isEmpty());
+    Q_ASSERT(!connectionInfo.db_Driver.isEmpty());
+
+    //настраиваем подключение БД
+    db = QSqlDatabase::addDatabase(connectionInfo.db_Driver, connectionName);
+    db.setDatabaseName(connectionInfo.db_DBName);
+    db.setUserName(connectionInfo.db_UserName);
+    db.setPassword(connectionInfo.db_Password);
+    db.setConnectOptions(connectionInfo.db_ConnectOptions);
+    db.setPort(connectionInfo.db_Port);
+    db.setHostName(connectionInfo.db_Host);
+
+    //подключаемся к БД
+    return db.open();
 }
 
 void Common::DBQueryExecute(QSqlDatabase& db, const QString &queryText)
@@ -105,7 +127,6 @@ void Common::errorDBQuery(QSqlDatabase& db, const QSqlQuery& query)
     exit(EXIT_CODE::SQL_EXECUTE_QUERY_ERR);
 }
 
-
 bool Common::checkAlreadyRun()
 {
     QSystemSemaphore semaphore(QString("%1CheckAlreadyRunSemaphore").arg(QCoreApplication::applicationName()), 1);  // создаём семафор
@@ -139,43 +160,30 @@ void Common::exitIfAlreadyRun()
     }
 }
 
-QString executeDBErrorString(const QSqlDatabase& db, const QSqlQuery& query)
+QString Common::executeDBErrorString(const QSqlDatabase& db, const QSqlQuery& query)
 {
     return QString("Cannot execute query. Error: %1. Query: %2")
         .arg(query.lastError().text())
         .arg(query.lastQuery());
-
 }
 
-QString connectDBErrorString(const QSqlDatabase &db)
+QString Common::connectDBErrorString(const QSqlDatabase &db)
 {
     return QString("Cannot connect to database %1. Error: %2")
         .arg(db.connectionName())
         .arg(db.lastError().text());
 }
 
-QString commitDBErrorString(const QSqlDatabase &db)
+QString Common::commitDBErrorString(const QSqlDatabase &db)
 {
     return QString("Cannot commit trancsation in database %1. Error: %1")
         .arg(db.connectionName())
         .arg(db.lastError().text());
 }
 
-bool connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& connectionInfo, const QString& connectionName)
+
+void Common::messageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
-    Q_ASSERT(!db.isOpen());
-    Q_ASSERT(!connectionInfo.db_DBName.isEmpty());
-    Q_ASSERT(!connectionInfo.db_Driver.isEmpty());
-
-    //настраиваем подключение БД
-    db = QSqlDatabase::addDatabase(connectionInfo.db_Driver, connectionName);
-    db.setDatabaseName(connectionInfo.db_DBName);
-    db.setUserName(connectionInfo.db_UserName);
-    db.setPassword(connectionInfo.db_Password);
-    db.setConnectOptions(connectionInfo.db_ConnectOptions);
-    db.setPort(connectionInfo.db_Port);
-    db.setHostName(connectionInfo.db_Host);
-
-    //подключаемся к БД
-    return db.open();
+    QTextStream ss(stderr);
+    ss << msg << "\r\n";
 }

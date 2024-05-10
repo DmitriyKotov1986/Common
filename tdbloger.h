@@ -61,7 +61,7 @@ signals:
     void errorOccurred(Common::EXIT_CODE errorCode, const QString& errorString);
 
 public slots:
-    void sendLogMsg(TDBLoger::MSG_CODE category, const QString& msg); //Сохранения логов
+    void sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& msg); //Сохранения логов
 
 private:
     const DBConnectionInfo _dbConnectionInfo;
