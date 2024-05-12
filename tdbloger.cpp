@@ -115,7 +115,8 @@ void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& ms
 {
     Q_ASSERT(_db.isOpen());
 
-    const QString shortMsg = msg.size() >= MAX_MESSAGE_LENGTH ? msg.left(MAX_MESSAGE_LENGTH - 1) : msg;
+    QString shortMsg = msg.size() >= MAX_MESSAGE_LENGTH ? msg.left(MAX_MESSAGE_LENGTH - 1) : msg;
+    shortMsg.replace("'", "`");
 
     if (!_db.isOpen())
     {
