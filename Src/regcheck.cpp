@@ -6,6 +6,7 @@
 #include <QRandomGenerator>
 #include <QByteArray>
 #include <QString>
+#include <QFileInfo>
 
 //My
 #include "Common/common.h"

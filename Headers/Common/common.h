@@ -1,18 +1,13 @@
 #pragma once
 
 //STL
-#include <limits>
+#include <stdexcept>
+
 
 //Qt
 #include <QString>
 #include <QFile>
 #include <QDateTime>
-#include <QDebug>
-#include <QFileInfo>
-#include <QtSql/QSqlDatabase>
-#include <QtSql/QSqlQuery>
-#include <QXmlStreamReader>
-#include <QJsonObject>
 
 namespace Common
 {
@@ -79,77 +74,6 @@ static const QString SIMPLY_TIME_FORMAT("hh:mm:ss");
 static const QString DATETIME_FORMAT("yyyy-MM-dd hh:mm:ss.zzz");
 static const QString SIMPLY_DATETIME_FORMAT("yyyy-MM-dd hh:mm:ss");
 
-//вспомогательный класс ошибки парсинга
-class ParseException
-    : public std::runtime_error
-{
-public:
-    ParseException() = delete;
-
-    explicit ParseException(const QString& what)
-        : std::runtime_error(what.toStdString())
-    {
-    }
-};
-
-//XML
-template <typename TNumber>
-TNumber XMLReadNumber(QXmlStreamReader& XMLReader, const QString& tagName, TNumber minValue = std::numeric_limits<TNumber>::min(), TNumber maxValue = std::numeric_limits<TNumber>::max())
-{
-    const auto strValue = XMLReader.readElementText();
-    bool ok = false;
-
-    if constexpr (std::is_same_v<TNumber, quint64> || std::is_same_v<TNumber, quint32> || std::is_same_v<TNumber, quint16> || std::is_same_v<TNumber, quint8>)
-    {
-        const quint64 result = strValue.toULongLong(&ok);
-        if (!ok || result < minValue || result > maxValue)
-        {
-            throw ParseException(QString("Invalid value of tag (%1). Value: %2. Value must be unsigned number between [%3, %4]")
-                                    .arg(tagName)
-                                    .arg(strValue)
-                                    .arg(minValue)
-                                    .arg(maxValue));
-        }
-
-        return static_cast<TNumber>(result);
-    }
-
-    const auto result = strValue.toLongLong(&ok);
-    if (!ok || result < minValue || result > maxValue)
-    {
-        throw ParseException(QString("Invalid value of tag (%1). Value: %2. Value must be number between [%3, %4]")
-                                .arg(tagName)
-                                .arg(strValue)
-                                .arg(minValue)
-                                .arg(maxValue));
-    }
-
-    return static_cast<TNumber>(result);
-}
-
-QString XMLReadString(QXmlStreamReader& XMLReader, const QString& tagName, bool mayBeEmpty = true, qsizetype maxLength = std::numeric_limits<qsizetype>::max());
-bool XMLReadBool(QXmlStreamReader& XMLReader, const QString& tagName);
-QDateTime XMLReadDateTime(QXmlStreamReader& XMLReader, const QString& tagName, const QString& format = Common::DATETIME_FORMAT);
-
-//JSON
-double JSONReadNumber(const QJsonObject& json, const QString& key, double minValue = std::numeric_limits<double>::min(), double maxValue = std::numeric_limits<double>::max());
-QString JSONReadString(const QJsonObject& json, const QString& key, bool mayBeEmpty = true, qsizetype maxLength = std::numeric_limits<qsizetype>::max());
-bool JSONReadBool(const QJsonObject& json, const QString& key);
-QDateTime JSONReadDateTime(const QJsonObject& json, const QString& key, const QString& format = Common::DATETIME_FORMAT);
-
-//вспомогательный класс ошибки работы с БД
-class SQLException
-    : public std::runtime_error
-{
-public:
-    SQLException() = delete;
-
-    explicit SQLException(const QString& what)
-        : std::runtime_error(what.toStdString())
-    {
-    }
-};
-
 //функция перенаправления отладочных сообщений
 void messageOutput(QtMsgType type, const QMessageLogContext &context, const QString &msg);
 
@@ -160,17 +84,7 @@ void writeLogFile(const QString& prefix, const QString& msg);
 void writeDebugLogFile(const QString& prefix, const QString& msg);
 void saveLogToFile(const QString& msg);
 
-void connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& connectionInfo, const QString& connectionName);
-void closeDB(QSqlDatabase& db);
-void transactionDB(QSqlDatabase& db);
-void DBQueryExecute(QSqlDatabase& db, const QString &queryText); //Выполнят запрос к БД типа INSERT и UPDATE
-void DBQueryExecute(QSqlDatabase& db, QSqlQuery& query, const QString &queryText); //Выполнят запрос к БД типа SELECT
-void commitDB(QSqlDatabase& db);
-
-QString connectDBErrorString(const QSqlDatabase& db);
-QString executeDBErrorString(const QSqlDatabase& db, const QSqlQuery& query);
-QString commitDBErrorString(const QSqlDatabase& db);
-QString transactionDBErrorString(const QSqlDatabase& db);
+bool makeFilePath(const QString& fileName);
 
 } //Common
 

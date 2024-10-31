@@ -8,6 +8,7 @@
 
 //My
 #include "Common/common.h"
+#include "Common/sql.h"
 
 #include "Common/tdbloger.h"
 
@@ -74,7 +75,11 @@ TDBLoger::~TDBLoger()
     {
         closeDB(_db);
 
-        qInfo() << QString("Logger to DB stopped successfully");
+        const auto msg = QString("Logger to DB stopped successfully");
+
+        writeLogFile("LOGER", msg);
+
+        qInfo() << msg;
     }
 }
 
@@ -97,7 +102,11 @@ void TDBLoger::start()
     {
         connectToDB(_db, _dbConnectionInfo, _logDBName);
 
-        qInfo() << QString("Logger to DB started successfully. Database: %1. Table: %2").arg(_db.databaseName()).arg(_logDBName);
+        const auto msg = QString("Logger to DB started successfully. Database: %1. Table: %2").arg(_db.databaseName()).arg(_logDBName);
+
+        writeLogFile("LOGER", msg);
+
+        qInfo() << msg;
 
         clearOldLog();
 
@@ -186,13 +195,13 @@ void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& ms
     {
         _errorString = err.what();
 
-        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
-
         const auto saveMsg = QString("%1 %2").arg(msgCodeToQString(category)).arg(msg);
 
         writeLogFile("ERROR_SAVE_TO_LOG_DB", saveMsg);
 
         qWarning() << QString("Error save to log DB. Message: %1").arg(msg);
+
+        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
     }
 }
 
