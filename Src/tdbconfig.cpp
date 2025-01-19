@@ -26,7 +26,7 @@ TDBConfig::~TDBConfig()
     closeDB(_db);
 }
 
-bool TDBConfig::isError() const
+bool TDBConfig::isError() const noexcept
 {
     return !_errorString.isEmpty();
 }
@@ -43,6 +43,8 @@ Q_GLOBAL_STATIC(const QString, DEFAULT_VALUE);
 
 const QString& TDBConfig::getValue(const QString &key)
 {
+    Q_ASSERT(!key.isEmpty());
+
     QMutexLocker<QMutex> locker(configDBMutex);
 
     loadFromDB();
@@ -87,7 +89,7 @@ void TDBConfig::setValue(const QString &key, const QString &value)
                                 "SET `Value` = '%2' "
                                 "WHERE `Owner` = '%3' AND `Key` = '%4' ")
                             .arg(_configDBName)
-                            .arg(value)
+                            .arg(value.toUtf8().toBase64())
                             .arg(QCoreApplication::applicationName())
                             .arg(key);
 
@@ -100,7 +102,7 @@ void TDBConfig::setValue(const QString &key, const QString &value)
                             .arg(_configDBName)
                             .arg(QCoreApplication::applicationName())
                             .arg(key)
-                            .arg(value);
+                            .arg(value.toUtf8().toBase64());
 
             _values.insert({key, value});
         }
@@ -113,7 +115,7 @@ void TDBConfig::setValue(const QString &key, const QString &value)
                                 "SET [Value] = '%2' "
                                 "WHERE [Owner] = '%3' AND [Key] = '%4' ")
                             .arg(_configDBName)
-                            .arg(value)
+                            .arg(value.toUtf8().toBase64())
                             .arg(QCoreApplication::applicationName())
                             .arg(key);
 
@@ -126,7 +128,7 @@ void TDBConfig::setValue(const QString &key, const QString &value)
                             .arg(_configDBName)
                             .arg(QCoreApplication::applicationName())
                             .arg(key)
-                            .arg(value);
+                            .arg(value.toUtf8().toBase64());
 
             _values.insert({key, value});
         }
@@ -148,6 +150,8 @@ void TDBConfig::setValue(const QString &key, const QString &value)
 
 bool TDBConfig::hasValue(const QString &key)
 {
+    Q_ASSERT(!key.isEmpty());
+
     QMutexLocker<QMutex> locker(configDBMutex);
 
     loadFromDB();
@@ -208,7 +212,7 @@ void TDBConfig::loadFromDB()
         while (query.next())
         {
             auto key = query.value("Key").toString();
-            auto value = query.value("Value").toString();
+            auto value = QByteArray::fromBase64(query.value("Value").toString().toUtf8());
 
             _values.emplace(std::move(key), std::move(value));
         }

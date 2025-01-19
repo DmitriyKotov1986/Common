@@ -3,6 +3,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QSqlError>
+#include <QDateTime>
 
 #include "Common/sql.h"
 
@@ -28,8 +29,9 @@ void checkDBConnect()
             {
                 try
                 {
+#ifdef QT_DEBUG
                     qDebug() << QString("Check DB connection: %1").arg(connection.first);
-
+#endif
                     if (!db.transaction())
                     {
                         throw SQLException(transactionDBErrorString(db));
@@ -63,21 +65,22 @@ Q_GLOBAL_STATIC(QMutex, connectDBMutex);
 void Common::connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& connectionInfo, const QString& connectionName)
 {
     Q_ASSERT(!db.isOpen());
-    Q_ASSERT(!connectionInfo.db_DBName.isEmpty());
-    Q_ASSERT(!connectionInfo.db_Driver.isEmpty());
+    Q_ASSERT(!connectionInfo.dbName.isEmpty());
+    Q_ASSERT(!connectionInfo.driver.isEmpty());
 
-    qDebug() << QString("Connect to DB %1:%2").arg(connectionInfo.db_DBName).arg(connectionName);
-
+#ifdef QT_DEBUG
+    qDebug() << QString("Connect to DB %1:%2").arg(connectionInfo.dbName).arg(connectionName);
+#endif
     QMutexLocker<QMutex> connectDBMutexLocker(connectDBMutex);
 
     //настраиваем подключение БД
-    db = QSqlDatabase::addDatabase(connectionInfo.db_Driver, connectionName);
-    db.setDatabaseName(connectionInfo.db_DBName);
-    db.setUserName(connectionInfo.db_UserName);
-    db.setPassword(connectionInfo.db_Password);
-    db.setConnectOptions(connectionInfo.db_ConnectOptions);
-    db.setPort(connectionInfo.db_Port);
-    db.setHostName(connectionInfo.db_Host);
+    db = QSqlDatabase::addDatabase(connectionInfo.driver, connectionName);
+    db.setDatabaseName(connectionInfo.dbName);
+    db.setUserName(connectionInfo.userName);
+    db.setPassword(connectionInfo.password);
+    db.setConnectOptions(connectionInfo.connectOptions);
+    db.setPort(connectionInfo.port);
+    db.setHostName(connectionInfo.host);
 
     if (DBConnectionsTimer_p == nullptr)
     {
@@ -109,7 +112,9 @@ void Common::closeDB(QSqlDatabase &db)
         return;
     }
 
+#ifdef QT_DEBUG
     qDebug() << QString("Close DB %1:%2").arg(db.databaseName()).arg(db.connectionName());
+#endif
 
     if (db.isOpen())
     {
@@ -136,7 +141,9 @@ void Common::transactionDB(QSqlDatabase &db)
 {
     Q_ASSERT(db.isOpen());
 
+#ifdef QT_DEBUG
     qDebug() << QString("Start transaction DB %1:%2").arg(db.databaseName()).arg(db.connectionName());
+#endif
 
     if (!db.transaction())
     {
@@ -150,7 +157,9 @@ void Common::DBQueryExecute(QSqlDatabase& db, const QString &queryText)
 
     transactionDB(db);
 
+#ifdef QT_DEBUG
     qDebug() << QString("Query to DB %1:%2: %3").arg(db.databaseName()).arg(db.connectionName()).arg(queryText);
+#endif
 
     QSqlQuery query(db);
     if (!query.exec(queryText))
@@ -167,7 +176,9 @@ void Common::DBQueryExecute(QSqlDatabase &db, QSqlQuery &query, const QString &q
 {
     Q_ASSERT(db.isOpen());
 
+#ifdef QT_DEBUG
     qDebug() << QString("Query to DB %1:%2: %3").arg(db.databaseName()).arg(db.connectionName()).arg(queryText);
+#endif
 
     if (!query.exec(queryText))
     {
@@ -179,7 +190,9 @@ void Common::commitDB(QSqlDatabase &db)
 {
     Q_ASSERT(db.isOpen());
 
+#ifdef QT_DEBUG
     qDebug() << QString("Commit DB %1:%2").arg(db.databaseName()).arg(db.connectionName());
+#endif
 
     if (!db.commit())
     {
@@ -227,4 +240,19 @@ QString Common::transactionDBErrorString(const QSqlDatabase &db)
         .arg(db.databaseName())
         .arg(db.connectionName())
         .arg(db.lastError().text());
+}
+
+QString DBConnectionInfo::check() const
+{
+    const auto driverslist = QSqlDatabase::drivers();
+    if (!driverslist.contains(driver))
+    {
+        return QString("Driver %1 is not support. Supported drivers: %2").arg(driver).arg(driverslist.join(','));
+    }
+    if (dbName.isEmpty())
+    {
+        return QString("DB Name cannot be empty");
+    }
+
+    return {};
 }

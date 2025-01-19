@@ -11,6 +11,9 @@
 namespace Common
 {
 
+///////////////////////////////////////////////////////////////////////////////
+///     The THTTPQuery class - класс для отправки простых POST запросов
+///
 class THTTPQuery final
     : public QObject
 {

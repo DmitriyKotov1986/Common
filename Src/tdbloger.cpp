@@ -1,5 +1,5 @@
 //STL
-#include <memory>
+#include <functional>
 
 //Qt
 #include <QtSql/QSqlError>
@@ -18,6 +18,7 @@ using namespace Common;
 static TDBLoger *DBLoger_ptr = nullptr;
 static const qsizetype MAX_MESSAGE_LENGTH = 1024 * 1024; //1MB
 static const qint64 MAX_LOG_SAVE_INTERVAL = 60 * 60 * 24 * 30; //30 days
+static const qsizetype MAX_LOG_MESSAGE_COUNT = 10;
 
 TDBLoger* TDBLoger::DBLoger(const DBConnectionInfo& DBConnectionInfo /* = {} */,
                    const QString& logDBName /* = "Log" */,
@@ -71,19 +72,24 @@ TDBLoger::TDBLoger(const DBConnectionInfo& DBConnectionInfo,
 
 TDBLoger::~TDBLoger()
 {
-    if (_isStarted)
+    if (!_isStarted)
     {
-        closeDB(_db);
-
-        const auto msg = QString("Logger to DB stopped successfully");
-
-        writeLogFile("LOGER", msg);
-
-        qInfo() << msg;
+        return;
     }
+
+    _saveResult = std::async(TDBLoger::saveToDB, std::ref(_db), std::move(_queueMessages));
+    checkResult();
+
+    closeDB(_db);
+
+    const auto msg = QString("Logger to DB stopped successfully");
+
+    writeLogFile("LOGER", msg);
+
+    qInfo() << msg;
 }
 
-bool TDBLoger::isError() const
+bool TDBLoger::isError() const noexcept
 {
     return !_errorString.isEmpty();
 }
@@ -170,38 +176,39 @@ void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& ms
     QString queryText;
     if (_db.driverName() == "QMYSQL")
     {
-        queryText = QString("INSERT INTO `%1` (`DateTime`, `Category`, `Sender`, `Msg`) VALUES (CAST('%2' AS DATETIME), %3, '%4', '%5')")
-            .arg(_logDBName)
-            .arg(QDateTime::currentDateTime().toString(DATETIME_FORMAT))
-            .arg(QString::number(static_cast<int>(category)))
-            .arg(QCoreApplication::applicationName())
-            .arg(shortMsg);
+        queryText = QString("INSERT DELAYED INTO `%1` (`DateTime`, `Category`, `Sender`, `Msg`) VALUES (CAST('%2' AS DATETIME), %3, '%4', '%5')")
+                        .arg(_logDBName)
+                        .arg(QDateTime::currentDateTime().toString(DATETIME_FORMAT))
+                        .arg(QString::number(static_cast<int>(category)))
+                        .arg(QCoreApplication::applicationName())
+                        .arg(shortMsg);
     }
     else
     {
         queryText = QString("INSERT INTO [%1] ([DateTime], [Category], [Sender], [Msg]) VALUES (CAST('%2' AS DATETIME2), %3, '%4', '%5')")
-            .arg(_logDBName)
-            .arg(QDateTime::currentDateTime().toString(DATETIME_FORMAT))
-            .arg(QString::number(static_cast<int>(category)))
-            .arg(QCoreApplication::applicationName())
-            .arg(shortMsg);
+                        .arg(_logDBName)
+                        .arg(QDateTime::currentDateTime().toString(DATETIME_FORMAT))
+                        .arg(QString::number(static_cast<int>(category)))
+                        .arg(QCoreApplication::applicationName())
+                        .arg(shortMsg);
     }
 
-    try
+    if (!_queueMessages)
     {
-        DBQueryExecute(_db, queryText);
+        _queueMessages = std::make_unique<QueueMessages>();
     }
-    catch (const SQLException& err)
+    _queueMessages->emplace(std::move(queryText));
+
+    if (_queueMessages->size() >= MAX_LOG_MESSAGE_COUNT)
     {
-        _errorString = err.what();
+        auto tmpQueueMessages = std::move(_queueMessages);
+        _queueMessages.reset();
 
-        const auto saveMsg = QString("%1 %2").arg(msgCodeToQString(category)).arg(msg);
+        //Дожидаемся сохраенния предидущих сообщений
+        checkResult();
 
-        writeLogFile("ERROR_SAVE_TO_LOG_DB", saveMsg);
-
-        qWarning() << QString("Error save to log DB. Message: %1").arg(msg);
-
-        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
+        //Запускаем сохранние новых
+        _saveResult = std::async(TDBLoger::saveToDB, std::ref(_db), std::move(tmpQueueMessages));
     }
 }
 
@@ -227,8 +234,52 @@ void TDBLoger::clearOldLog()
                         .arg(lastLog.toString(DATETIME_FORMAT));
     }
 
-     DBQueryExecute(_db, queryText);
+    DBQueryExecute(_db, queryText);
 
-     qDebug() << QString("Cleared logs before: %1").arg(lastLog.toString(SIMPLY_DATETIME_FORMAT));
+    qDebug() << QString("Cleared logs before: %1").arg(lastLog.toString(SIMPLY_DATETIME_FORMAT));
+}
+
+std::optional<QString> TDBLoger::saveToDB(QSqlDatabase &db, PQueueMessages queueMessages)
+{
+    try
+    {
+        transactionDB(db);
+        QSqlQuery query(db);
+
+        while (!queueMessages->empty())
+        {
+            const auto& queryText = queueMessages->front();
+            DBQueryExecute(db, query, queryText);
+            queueMessages->pop();
+        }
+
+        commitDB(db);
+    }
+    catch (const SQLException& err)
+    {
+        writeLogFile("ERROR_SAVE_TO_LOG_DB", err.what());
+
+        qCritical() << QString("Error save to log DB. Message: %1").arg(err.what());
+
+        return  err.what();
+    }
+
+    return std::nullopt;
+}
+
+void TDBLoger::checkResult()
+{
+    if (!_saveResult.valid())
+    {
+        return;
+    }
+
+    const auto errMsg = _saveResult.get();
+    if (errMsg.has_value())
+    {
+        _errorString = errMsg.value();
+
+        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
+    }
 }
 

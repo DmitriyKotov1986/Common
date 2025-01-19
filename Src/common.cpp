@@ -20,8 +20,8 @@
 
 using namespace Common;
 
-static constexpr qsizetype MAX_FILE_LOG_SIZE = 100 * 1024 * 1024; //100 MB
-static const int MAX_SAVE_LOG_INTERVAL = 30;
+static constexpr qsizetype MAX_FILE_LOG_SIZE = 100 * 1024 * 1024; ///< 100 MB максимальный размер файл лога
+static const int MAX_SAVE_LOG_INTERVAL = 30;  ///< Максимальный период хранение файла лога.
 
 void Common::writeLogFile(const QString& prefix, const QString& msg)
 {
@@ -31,16 +31,20 @@ void Common::writeLogFile(const QString& prefix, const QString& msg)
     static QMutex mutex;
     auto locker = QMutexLocker(&mutex);
 
+    /*!
+        Вспомогательный класс исключения записи в файл лога
+     */
     class WriteLogFileException
         : public std::runtime_error
     {
     public:
-        WriteLogFileException() = delete;
-
         explicit WriteLogFileException(const QString& what)
             : std::runtime_error(what.toStdString())
         {
         }
+
+    private:
+        WriteLogFileException() = delete;
     };
 
     try
