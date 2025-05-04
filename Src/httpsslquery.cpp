@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QAuthenticator>
 #include <QSslConfiguration>
+#include <QSslError>
 #include <QMutex>
 #include <QMutexLocker>
 
@@ -10,7 +11,8 @@
 
 using namespace Common;
 
-static const qsizetype MAX_MANAGER_COUNT = 2000;
+static const qsizetype MAX_LOG_LENGTH = 1024 * 10; //10KB
+static quint64 TRANSFER_TIMEOUT = 30 * 1000; //30c
 
 ///////////////////////////////////////////////////////////////////////////////
 ///     class HTTPSSLQuery
@@ -92,15 +94,6 @@ quint64 HTTPSSLQuery::send(const QUrl& url, RequestType type, const Headers& hea
     Headers curHeaders(_headers);
     curHeaders.insert(headers);
 
-#ifdef QT_DEBUG
-    qDebug() << QString("HTTPS REQUEST (%1) TO %2 %3%4%5")
-                    .arg(id)
-                    .arg(requestTypeToString(type))
-                    .arg(url.toString())
-                    .arg(curHeaders.empty() ? "" : QString(". Headers: %1").arg(headersToString(curHeaders)))
-                    .arg(data.isEmpty() ? "" : QString(". Data: %1").arg(data));
-#endif
-
     auto manager = getManager(id);
 
     //Если количество одновренменных превышено - то гененрируем сигнал с ошибкой
@@ -109,7 +102,7 @@ quint64 HTTPSSLQuery::send(const QUrl& url, RequestType type, const Headers& hea
         QTimer::singleShot(1, this,
             [this, id]()
             {
-            const auto msg = QString("HTTP request fail. HTTPSSLClient: Too many requests sent at the same time");
+            const auto msg = QString("HTTP request fail. HTTPSSLClient: Too many requests sent at the same time. ");
 
             emit errorOccurred(QNetworkReply::NetworkError::OperationCanceledError, 0, msg, id);
             });
@@ -117,18 +110,37 @@ quint64 HTTPSSLQuery::send(const QUrl& url, RequestType type, const Headers& hea
         return id;
     }
 
+#ifdef QT_DEBUG
+    const auto dataForLog = data.size() > MAX_LOG_LENGTH ? data.first(MAX_LOG_LENGTH) : data;
+
+    qDebug() << QString("HTTPS REQUEST (%1) TO %2 %3%4%5%6")
+                    .arg(id)
+                    .arg(requestTypeToString(type))
+                    .arg(manager->proxy().hostName().isEmpty() ? "" : QString("(Proxy: %1:%2) ").arg(manager->proxy().hostName()).arg(manager->proxy().port()))
+                    .arg(url.toString())
+                    .arg(curHeaders.empty() ? "" : QString(". Headers: %1").arg(headersToString(curHeaders)))
+                    .arg(data.isEmpty() ? "" : QString(". Data(%1 Bytes): %2").arg(data.size()).arg(data));
+#endif
+
     //создаем и отправляем запрос
     QNetworkRequest request(url);
+
+#ifndef QT_NO_SSL
     request.setSslConfiguration(QSslConfiguration::defaultConfiguration());
+#endif
 
     request.setAttribute(QNetworkRequest::HttpPipeliningAllowedAttribute, false);
+
+    curHeaders.emplace("User-Agent", QCoreApplication::applicationName().toUtf8());
+    if (data.size() != 0)
+    {
+        curHeaders.emplace("Content-Length", QString::number(data.size()).toUtf8());
+    }
 
     for (auto header_it = curHeaders.begin(); header_it != curHeaders.end(); ++header_it)
     {
         request.setRawHeader(header_it.key(), header_it.value());
     }
-    request.setHeader(QNetworkRequest::UserAgentHeader, QCoreApplication::applicationName());
-    request.setHeader(QNetworkRequest::ContentLengthHeader, QString::number(data.size()));
 
     QNetworkReply* resp = nullptr;
     switch (type)
@@ -170,10 +182,9 @@ void HTTPSSLQuery::replyFinished(QNetworkReply *resp)
     const auto id = resp->objectName().toULongLong(&ok);
     Q_ASSERT(ok);
 
-    freeManager(id);
-
+    const auto answerForLog = QString(answer.size() > MAX_LOG_LENGTH ? answer.first(MAX_LOG_LENGTH) : answer);
 #ifdef QT_DEBUG
-    qDebug() << QString("HTTPS ANSWER (%1) FROM %2: %3").arg(id).arg(resp->url().toString()).arg(answer);
+    qDebug() << QString("HTTPS ANSWER (%1) FROM %2: (%3 Bytes) %4").arg(id).arg(resp->url().toString()).arg(answer.size()).arg(answerForLog);
 #endif
 
     if (resp->error() == QNetworkReply::NoError)
@@ -183,17 +194,22 @@ void HTTPSSLQuery::replyFinished(QNetworkReply *resp)
     else
     {
         const auto serverCode = resp->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto msg = QString("HTTP request fail. Code: %1. Server code: %2. Messasge: %3.%4 Answer: %5")
+        const auto msg = QString("HTTP request fail. Code: %1. Server code: %2. Messasge: %5.%4 Answer: %3") //используем неправильный порядок аргументов т.к. resp->errorString() может содержать символ %
                              .arg(QString::number(resp->error()))
                              .arg(serverCode)
-                             .arg(resp->errorString())
+                             .arg(answerForLog)
                              .arg(resp->manager()->proxy().hostName().isEmpty() ? "" : QString(" Proxy: %1:%2.").arg(resp->manager()->proxy().hostName()).arg(resp->manager()->proxy().port()))
-                             .arg(answer);
+                             .arg(resp->errorString());
 
         emit errorOccurred(resp->error(), serverCode, msg, id);
     }
 
-    resp->deleteLater(); 
+    QTimer::singleShot(0, this,
+        [this, id, resp]()
+        {
+            delete resp;
+            freeManager(id);
+        });
 }
 
 void HTTPSSLQuery::authenticationRequired(QNetworkReply *reply, QAuthenticator *authenticator)
@@ -231,6 +247,7 @@ void HTTPSSLQuery::proxyAuthenticationRequired(const QNetworkProxy &proxy, QAuth
     authenticator->setOption("realm", authenticator->realm());
 }
 
+#ifndef QT_NO_SSL
 void HTTPSSLQuery::sslErrors(QNetworkReply *reply, const QList<QSslError> &errors)
 {
     Q_CHECK_PTR(reply);
@@ -250,6 +267,7 @@ void HTTPSSLQuery::sslErrors(QNetworkReply *reply, const QList<QSslError> &error
 
     emit sendLogMsg(Common::TDBLoger::MSG_CODE::WARNING_CODE, QString("SSL Error: %1").arg(errorsString), reply->objectName().toULongLong());
 }
+#endif
 
 QNetworkAccessManager *HTTPSSLQuery::getManager(quint64 id)
 {
@@ -266,8 +284,10 @@ QNetworkAccessManager *HTTPSSLQuery::getManager(quint64 id)
         QObject::connect(_managerPool.get(), SIGNAL(authenticationRequired(QNetworkReply*, QAuthenticator*)),
                          SLOT(authenticationRequired(QNetworkReply*, QAuthenticator*)));
 
+#ifndef QT_NO_SSL
         QObject::connect(_managerPool.get(), SIGNAL(sslErrors(QNetworkReply*, const QList<QSslError>&)),
                          SLOT(sslErrors(QNetworkReply*, const QList<QSslError>&)));
+#endif
     }
 
     return _managerPool->getManager(id);
@@ -288,51 +308,30 @@ NetworkAccessManagerPool::NetworkAccessManagerPool(const HTTPSSLQuery::ProxyList
 {
 }
 
-NetworkAccessManagerPool::~NetworkAccessManagerPool()
-{
-    delete _clearTimer;
-}
-
 QNetworkAccessManager* NetworkAccessManagerPool::getManager(quint64 id)
 {
     Q_ASSERT(!_busyManager.contains(id));
 
-    //Find free manager
-    std::multimap<quint64, PManager> _freeManager;
-
-    for (const auto& manager: _poolManager)
-    {
-        if (manager.second->isFree)
-        {
-            _freeManager.emplace(manager.second->queryCount, manager.first);
-        }
-    }
-
-    //слишком много одновременных запросов
-    if (_freeManager.empty() && _poolManager.size() > MAX_MANAGER_COUNT)
+    if (_busyManager.size() > 1000)
     {
         return nullptr;
     }
 
-    PManager useManager = _freeManager.empty() ? addManager() : _freeManager.begin()->second;
-
-    auto& useManagerInfo = _poolManager.at(useManager);
-    useManagerInfo->isFree = false;
-    useManagerInfo->lastUse = QDateTime::currentDateTime();
-    ++useManagerInfo->queryCount;
-
-    _busyManager.emplace(id, useManager);
-
-    if (!_clearTimer)
+    if (_poolManager.size() == 0)
     {
-        _clearTimer = new QTimer();
-
-        QObject::connect(_clearTimer, SIGNAL(timeout()), SLOT(clearUnusedManager()));
-
-        _clearTimer->start(60 * 1000); //1мин
+        addManager();
     }
 
-    return useManager.get();
+    Q_ASSERT(!_poolManager.empty());
+
+    auto useManager = std::move(_poolManager.front());
+    const auto p_useManager = useManager.get();
+
+    _poolManager.pop();
+
+    _busyManager.emplace(id, std::move(useManager));
+
+    return p_useManager;
 }
 
 void NetworkAccessManagerPool::freeManager(quint64 id)
@@ -341,45 +340,36 @@ void NetworkAccessManagerPool::freeManager(quint64 id)
 
     Q_ASSERT(it_busyManager != _busyManager.end());
 
-    const auto p_manager = it_busyManager->second;
-
-    auto& useManagerInfo = _poolManager.at(p_manager);
-    useManagerInfo->isFree = true;
+    auto manager = std::move(it_busyManager->second);
+    manager->clearConnectionCache();
+    manager->clearAccessCache();
 
     _busyManager.erase(it_busyManager);
+
+    _poolManager.push(std::move(manager));
 }
 
-NetworkAccessManagerPool::PManager NetworkAccessManagerPool::addManager()
+void NetworkAccessManagerPool::addManager()
 {
-    PManager result;
     if (_proxyList.isEmpty())
     {
-        auto manager = std::make_shared<QNetworkAccessManager>();
-        auto managerInfo = std::make_unique<ManagerInfo>();
+        auto manager = std::make_unique<QNetworkAccessManager>();
 
-        addManager(manager, std::move(managerInfo));
-
-        result = manager;
+        addManager(std::move(manager));
     }
     else
     {
         for (const auto& proxy: _proxyList)
         {
-            auto manager = std::make_shared<QNetworkAccessManager>();
+            auto manager = std::make_unique<QNetworkAccessManager>();
             manager->setProxy(proxy);
 
-            auto managerInfo = std::make_unique<ManagerInfo>();
-
-            addManager(manager, std::move(managerInfo));
-
-            result = manager;
+            addManager(std::move(manager));
         }
     }
-
-    return result;
 }
 
-void NetworkAccessManagerPool::addManager(PManager& manager, PManagerInfo&& managerInfo)
+void NetworkAccessManagerPool::addManager(PManager&& manager)
 {
     QObject::connect(manager.get(), SIGNAL(finished(QNetworkReply*)),
                      SLOT(replyFinishedManager(QNetworkReply*)));
@@ -387,50 +377,20 @@ void NetworkAccessManagerPool::addManager(PManager& manager, PManagerInfo&& mana
                      SLOT(authenticationRequiredManager(QNetworkReply*, QAuthenticator*)));
     QObject::connect(manager.get(), SIGNAL(proxyAuthenticationRequired(const QNetworkProxy&, QAuthenticator*)),
                      SLOT(proxyAuthenticationRequiredManager(const QNetworkProxy&, QAuthenticator*)));
+
+#ifndef QT_NO_SSL
     QObject::connect(manager.get(), SIGNAL(sslErrors(QNetworkReply*, const QList<QSslError>&)),
                      SLOT(sslErrorsManager(QNetworkReply*, const QList<QSslError>&)));
-
-    manager->setTransferTimeout(10 * 1000);
-
-    _poolManager.emplace(manager, std::move(managerInfo));
-
-#ifdef QT_DEBUG
-    qDebug() << QString("Added new NetworkAccessManager. Total managers: %1").arg(_poolManager.size());
-#endif
-}
-
-void NetworkAccessManagerPool::clearUnusedManager()
-{
-    //Создаем список неиспользуемых менеджеров
-    const auto oldPoolSize = _poolManager.size();
-    const auto curDateTime = QDateTime::currentDateTime();
-    std::list<PManager> eraseList;
-    for (const auto& [p_manager, managerInfo]: _poolManager)
-    {
-        if (managerInfo->isFree && managerInfo->lastUse.secsTo(curDateTime) > 60)
-        {
-            eraseList.push_back(p_manager);
-        }
-    }
-
-    for (const auto& p_manager: eraseList)
-    {
-        _poolManager.erase(p_manager);
-    }
-
-    if (_poolManager.empty())
-    {
-        _clearTimer->deleteLater();
-        _clearTimer = nullptr;
-    }
-
-#ifdef QT_DEBUG
-    if (oldPoolSize != _poolManager.size())
-    {
-        qDebug() << QString("Erase %1 unused NetworkAccessManager. Total managers: %2").arg(oldPoolSize - _poolManager.size()).arg(_poolManager.size());
-    }
 #endif
 
+    manager->setTransferTimeout(TRANSFER_TIMEOUT);  //
+
+#ifdef QT_DEBUG
+    qDebug() << QString("Added new NetworkAccessManager%1")
+                    .arg(manager->proxy().hostName().isEmpty() ? "" : QString(". Use proxy: %1:%2").arg(manager->proxy().hostName()).arg(manager->proxy().port()));
+#endif
+
+    _poolManager.push(std::move(manager));
 }
 
 void NetworkAccessManagerPool::replyFinishedManager(QNetworkReply* resp)
@@ -448,9 +408,10 @@ void NetworkAccessManagerPool::proxyAuthenticationRequiredManager(const QNetwork
     emit proxyAuthenticationRequired(proxy, authenticator);
 }
 
+#ifndef QT_NO_SSL
 void NetworkAccessManagerPool::sslErrorsManager(QNetworkReply *reply, const QList<QSslError> &errors)
 {
     emit sslErrors(reply, errors);
 }
-
+#endif
 

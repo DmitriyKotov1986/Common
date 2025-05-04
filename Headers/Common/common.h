@@ -84,6 +84,8 @@ static const QString SIMPLY_TIME_FORMAT("hh:mm:ss");               ///< Толь
 static const QString DATETIME_FORMAT("yyyy-MM-dd hh:mm:ss.zzz");   ///< Основной формат даты/времени
 static const QString SIMPLY_DATETIME_FORMAT("yyyy-MM-dd hh:mm:ss");///< Дата/время упрощенный
 
+
+static bool DEBUG_MODE = false;
 /*!
     Функция перенаправления отладочных сообщений
 */

@@ -23,11 +23,12 @@ static const qsizetype MAX_LOG_MESSAGE_COUNT = 10;
 TDBLoger* TDBLoger::DBLoger(const DBConnectionInfo& DBConnectionInfo /* = {} */,
                    const QString& logDBName /* = "Log" */,
                    bool debugMode /* = true */,
+                   const QString& sender,
                    QObject* parent /* = nullptr */)
 {
     if (!DBLoger_ptr)
     {
-        DBLoger_ptr = new TDBLoger(DBConnectionInfo, logDBName, debugMode, parent);
+        DBLoger_ptr = new TDBLoger(DBConnectionInfo, logDBName, debugMode, sender, parent);
     }
 
     return DBLoger_ptr;
@@ -60,11 +61,13 @@ QString TDBLoger::msgCodeToQString(TDBLoger::MSG_CODE code)
 TDBLoger::TDBLoger(const DBConnectionInfo& DBConnectionInfo,
                    const QString& logDBName,
                    bool debugMode,
-                   QObject* parent):
-    QObject(parent),
-    _dbConnectionInfo(DBConnectionInfo),
-    _logDBName(logDBName),
-    _debugMode(debugMode)
+                   const QString& sender,
+                   QObject* parent)
+    : QObject(parent)
+    , _dbConnectionInfo(DBConnectionInfo)
+    , _logDBName(logDBName)
+    , _debugMode(debugMode)
+    , _sender(sender)
 {
     qRegisterMetaType<Common::TDBLoger::MSG_CODE>();
     qRegisterMetaType<Common::EXIT_CODE>();
@@ -77,8 +80,7 @@ TDBLoger::~TDBLoger()
         return;
     }
 
-    _saveResult = std::async(TDBLoger::saveToDB, std::ref(_db), std::move(_queueMessages));
-    checkResult();
+    saveToDB();
 
     closeDB(_db);
 
@@ -143,16 +145,10 @@ void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& ms
         }
         break;
     case MSG_CODE::INFORMATION_CODE:
-        if (_debugMode)
-        {
-            qInfo() << msg;
-        }
+        qInfo() << msg;
         break;
     case MSG_CODE::WARNING_CODE:
-        if (_debugMode)
-        {
-            qWarning() << msg;
-        }
+        qWarning() << msg;
         break;
     case MSG_CODE::CRITICAL_CODE:
         qCritical() << msg;
@@ -180,7 +176,7 @@ void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& ms
                         .arg(_logDBName)
                         .arg(QDateTime::currentDateTime().toString(DATETIME_FORMAT))
                         .arg(QString::number(static_cast<int>(category)))
-                        .arg(QCoreApplication::applicationName())
+                        .arg(_sender)
                         .arg(shortMsg);
     }
     else
@@ -189,27 +185,16 @@ void TDBLoger::sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& ms
                         .arg(_logDBName)
                         .arg(QDateTime::currentDateTime().toString(DATETIME_FORMAT))
                         .arg(QString::number(static_cast<int>(category)))
-                        .arg(QCoreApplication::applicationName())
+                        .arg(_sender)
                         .arg(shortMsg);
     }
 
-    if (!_queueMessages)
-    {
-        _queueMessages = std::make_unique<QueueMessages>();
-    }
-    _queueMessages->emplace(std::move(queryText));
+     _queueMessages.emplace(std::move(queryText));
 
-    if (_queueMessages->size() >= MAX_LOG_MESSAGE_COUNT)
-    {
-        auto tmpQueueMessages = std::move(_queueMessages);
-        _queueMessages.reset();
-
-        //Дожидаемся сохраенния предидущих сообщений
-        checkResult();
-
-        //Запускаем сохранние новых
-        _saveResult = std::async(TDBLoger::saveToDB, std::ref(_db), std::move(tmpQueueMessages));
-    }
+     if (_queueMessages.size() >= MAX_LOG_MESSAGE_COUNT)
+     {
+         saveToDB();
+     }
 }
 
 void TDBLoger::clearOldLog()
@@ -239,47 +224,30 @@ void TDBLoger::clearOldLog()
     qDebug() << QString("Cleared logs before: %1").arg(lastLog.toString(SIMPLY_DATETIME_FORMAT));
 }
 
-std::optional<QString> TDBLoger::saveToDB(QSqlDatabase &db, PQueueMessages queueMessages)
+void TDBLoger::saveToDB()
 {
     try
     {
-        transactionDB(db);
-        QSqlQuery query(db);
+        transactionDB(_db);
+        QSqlQuery query(_db);
 
-        while (!queueMessages->empty())
+        while (!_queueMessages.empty())
         {
-            const auto& queryText = queueMessages->front();
-            DBQueryExecute(db, query, queryText);
-            queueMessages->pop();
+            const auto& queryText = _queueMessages.front();
+            DBQueryExecute(_db, query, queryText);
+            _queueMessages.pop();
         }
 
-        commitDB(db);
+        commitDB(_db);
     }
     catch (const SQLException& err)
     {
-        writeLogFile("ERROR_SAVE_TO_LOG_DB", err.what());
+        _errorString = err.what();
+        writeLogFile("ERROR_SAVE_TO_LOG_DB", _errorString);
 
-        qCritical() << QString("Error save to log DB. Message: %1").arg(err.what());
+        qCritical() << QString("Error save to log DB. Message: %1").arg(_errorString);
 
-        return  err.what();
-    }
-
-    return std::nullopt;
-}
-
-void TDBLoger::checkResult()
-{
-    if (!_saveResult.valid())
-    {
-        return;
-    }
-
-    const auto errMsg = _saveResult.get();
-    if (errMsg.has_value())
-    {
-        _errorString = errMsg.value();
-
-        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR, _errorString);
+        emit errorOccurred(EXIT_CODE::SQL_EXECUTE_QUERY_ERR,  _errorString);
     }
 }
 

@@ -14,7 +14,7 @@ namespace Common
 ///////////////////////////////////////////////////////////////////////////////
 /// Вспомогательный класс ошибки работы с БД
 ///
-class SQLException
+class SQLException final
     : public std::runtime_error
 {
 public:
@@ -26,6 +26,8 @@ public:
         : std::runtime_error(what.toStdString())
     {
     }
+
+    ~SQLException() override = default;
 
 private:
     // Удаляем неиспользуемые конструторы

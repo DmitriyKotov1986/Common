@@ -24,7 +24,7 @@ public:
     static void deleteTHTTPQuery();
 
 public:
-    ~THTTPQuery();
+    ~THTTPQuery() override;
 
 private:
     THTTPQuery() = delete;

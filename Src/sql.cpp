@@ -9,57 +9,6 @@
 
 using namespace Common;
 
-static std::unordered_map<QString, QDateTime> DBConnectionsList;
-static std::unique_ptr<QTimer> DBConnectionsTimer_p = nullptr;
-Q_GLOBAL_STATIC(QMutex, checkDBConnectionMutex);
-static const int MAX_DB_CONNECTION_TIMEOUT = 60 * 10;
-
-void checkDBConnect()
-{
-    const auto currentDateTime = QDateTime::currentDateTime();
-
-    QMutexLocker<QMutex> checkDBConnectionLocker(checkDBConnectionMutex);
-    for (auto& connection: DBConnectionsList)
-    {
-        if (connection.second.secsTo(currentDateTime) > MAX_DB_CONNECTION_TIMEOUT)
-        {
-            auto db = QSqlDatabase::database(connection.first);
-
-            if (db.isValid() && db.isOpen())
-            {
-                try
-                {
-#ifdef QT_DEBUG
-                    qDebug() << QString("Check DB connection: %1").arg(connection.first);
-#endif
-                    if (!db.transaction())
-                    {
-                        throw SQLException(transactionDBErrorString(db));
-                    }
-
-                    QSqlQuery query(db);
-
-                    if (!query.exec("SELECT 1"))
-                    {
-                        throw SQLException(executeDBErrorString(db, query));
-                    }
-
-                    if (!db.commit())
-                    {
-                        throw SQLException(commitDBErrorString(db));
-                    }
-
-                    connection.second = currentDateTime;
-                }
-                catch (const SQLException& err)
-                {
-                    qWarning() << QString("Cannot check DB connection. Error: %1").arg(err.what());
-                }
-            }
-        }
-    }
-}
-
 Q_GLOBAL_STATIC(QMutex, connectDBMutex);
 
 void Common::connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& connectionInfo, const QString& connectionName)
@@ -82,15 +31,6 @@ void Common::connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& conne
     db.setPort(connectionInfo.port);
     db.setHostName(connectionInfo.host);
 
-    if (DBConnectionsTimer_p == nullptr)
-    {
-        DBConnectionsTimer_p = std::make_unique<QTimer>();
-
-        QObject::connect(DBConnectionsTimer_p .get(), &QTimer::timeout, &checkDBConnect);
-
-        DBConnectionsTimer_p->start(60000);
-    }
-
     //подключаемся к БД
     if (!db.open())
     {
@@ -100,9 +40,6 @@ void Common::connectToDB(QSqlDatabase& db, const Common::DBConnectionInfo& conne
 
         throw SQLException(connectDBErrorString(db));
     }
-
-    QMutexLocker<QMutex> checkDBConnectionLocker(checkDBConnectionMutex);
-    DBConnectionsList.insert({connectionName, QDateTime::currentDateTime()});
 }
 
 void Common::closeDB(QSqlDatabase &db)
@@ -123,31 +60,26 @@ void Common::closeDB(QSqlDatabase &db)
 
     QMutexLocker<QMutex> connectDBMutexLocker(connectDBMutex);
 
-    const auto DBConnectionsList_it = DBConnectionsList.find(db.connectionName());
-    if (DBConnectionsList_it != DBConnectionsList.end())
-    {
-        DBConnectionsList.erase(DBConnectionsList_it);
-
-        if (DBConnectionsList.empty())
-        {
-            DBConnectionsTimer_p.reset();
-        }
-    }
-
-    QSqlDatabase::removeDatabase(db.connectionName());
+    QSqlDatabase::removeDatabase(db.connectionName()); 
 }
 
 void Common::transactionDB(QSqlDatabase &db)
 {
-    Q_ASSERT(db.isOpen());
-
 #ifdef QT_DEBUG
     qDebug() << QString("Start transaction DB %1:%2").arg(db.databaseName()).arg(db.connectionName());
 #endif
 
     if (!db.transaction())
     {
-        throw SQLException(transactionDBErrorString(db));
+        if (db.isOpen())
+        {
+            db.close();
+        }
+
+        if (!db.open())
+        {
+            throw SQLException(transactionDBErrorString(db));
+        }
     }
 }
 
@@ -199,13 +131,6 @@ void Common::commitDB(QSqlDatabase &db)
         db.rollback();
 
         throw SQLException(commitDBErrorString(db));
-    }
-
-    QMutexLocker<QMutex> checkDBConnectionLocker(checkDBConnectionMutex);
-    const auto DBConnectionsList_it = DBConnectionsList.find(db.connectionName());
-    if (DBConnectionsList_it != DBConnectionsList.end())
-    {
-        DBConnectionsList_it->second = QDateTime::currentDateTime();
     }
 }
 

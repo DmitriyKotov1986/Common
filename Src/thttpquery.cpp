@@ -95,11 +95,11 @@ void THTTPQuery::replyFinished(QNetworkReply *resp)
     else
     {
         const auto serverCode = resp->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        const auto msg = QString("HTTP request fail. Code: %1. Server code: %2. Messasge: %3. Answer: %5")
+        const auto msg = QString("HTTP request fail. Code: %1. Server code: %2. Messasge: %3. Answer: %4")
                              .arg(QString::number(resp->error()))
                              .arg(serverCode)
                              .arg(resp->errorString())
-                              .arg(answer);
+                             .arg(answer);
 
         emit errorOccurred(msg);
     }

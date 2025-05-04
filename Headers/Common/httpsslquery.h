@@ -76,7 +76,7 @@ public:
     /*!
         Деструктор
     */
-    ~HTTPSSLQuery();
+    ~HTTPSSLQuery() override;
 
     /*!
         Устанавливает имя пользователя и пароль для автоизации на сервере, если она требется. Этот метод должен быть вызван до выполнения первого запроса.
@@ -148,12 +148,14 @@ private slots:
     */
     void proxyAuthenticationRequired(const QNetworkProxy &proxy, QAuthenticator *authenticator);
 
+#ifndef QT_NO_SSL
     /*!
         Ошибка SSL
         @param reply -указатель на ответ на запрос
         @param errors - список ошибок
     */
     void sslErrors(QNetworkReply *reply, const QList<QSslError> &errors);
+#endif
 
 private:
     // Удаляем неиспользуеме конструторы
@@ -187,7 +189,7 @@ private:
 ///         Вспомогательный класс. Обесечивает балансировку количества запросов между прокси
 ///
 
-class NetworkAccessManagerPool
+class NetworkAccessManagerPool final
     : public QObject
 {
     Q_OBJECT
@@ -202,7 +204,7 @@ public:
     /*!
         Деструктор
     */
-    ~NetworkAccessManagerPool();
+    ~NetworkAccessManagerPool() override = default;
 
     /*!
         Возвращает указатель на текущий менеджер или nullptr если превышено количество допустимых менеджеров
@@ -222,32 +224,22 @@ signals:
     void replyFinished(QNetworkReply* resp);
     void authenticationRequired(QNetworkReply *reply, QAuthenticator *authenticator);
     void proxyAuthenticationRequired(const QNetworkProxy &proxy, QAuthenticator *authenticator);
+
+#ifndef QT_NO_SSL
     void sslErrors(QNetworkReply *reply, const QList<QSslError> &errors);
+#endif
 
 private slots:
     void replyFinishedManager(QNetworkReply* resp);
     void authenticationRequiredManager(QNetworkReply *reply, QAuthenticator *authenticator);
     void proxyAuthenticationRequiredManager(const QNetworkProxy &proxy, QAuthenticator *authenticator);
-    void sslErrorsManager(QNetworkReply *reply, const QList<QSslError> &errors);
 
-    /*!
-        Удалеет неиспользуемые менеджеры
-     */
-    void clearUnusedManager();
+#ifndef QT_NO_SSL
+    void sslErrorsManager(QNetworkReply *reply, const QList<QSslError> &errors);
+#endif
 
 private:
-    /*!
-        The ManagerInfo class данные об использовании менеджера
-     */
-    struct ManagerInfo
-    {
-        quint64 queryCount = 0;                             ///< Количество запросов обработанных менеджером
-        bool isFree = true;                                 ///< Флаг того что менеджр сейчас свободен и не участвует в обработке запроса
-        QDateTime lastUse = QDateTime::currentDateTime();   ///< Время последнего использования
-    };
-
-    using PManager = std::shared_ptr<QNetworkAccessManager>;///< Указатель на менеджер
-    using PManagerInfo = std::unique_ptr<ManagerInfo>;      ///< Указатель на информацию о менеджере
+    using PManager = std::unique_ptr<QNetworkAccessManager>;///< Указатель на менеджер
 
 private:
     //  Удаляем неиспользуемые конструторы
@@ -256,24 +248,21 @@ private:
 
     /*!
         Создает новый менеджер или несколько менеджеров для каждого из доступных прокси
-        @return указатель на новый менеджер
     */
-    PManager addManager();
+    void addManager();
 
     /*!
         Добавляет новый менеджер в пул и связывает его сигалы/слоты
         @param manager - указатель на новый менеджер
         @param managerInfo - указатель на сведения о менеджере
     */
-    void addManager(PManager& manager, PManagerInfo&& managerInfo);
+    void addManager(PManager&& manager);
 
 private:
     const HTTPSSLQuery::ProxyList _proxyList;                   ///< Список прокси
 
-    std::unordered_map<PManager, PManagerInfo> _poolManager;    ///< Пул менеджеров key - указатель на менеджер, value - информация о менеджере
+    std::queue<PManager> _poolManager;                          ///< Пул менеджеров
     std::unordered_map<quint64, PManager> _busyManager;         ///< Список свободных менеджеров. Ключ - ИД запроса, занчение - указатель на менеджер обслуживающий этот запрос
-
-    QTimer* _clearTimer = nullptr;                              ///< Указатель на таймер очистки неиспользуемых менеджеров
 
 };
 
@@ -281,3 +270,4 @@ private:
 
 Q_DECLARE_METATYPE(Common::HTTPSSLQuery::Headers)
 Q_DECLARE_METATYPE(Common::HTTPSSLQuery::RequestType)
+

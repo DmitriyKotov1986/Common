@@ -8,6 +8,7 @@
 //Qt
 #include <QObject>
 #include <QtSql/QSqlDatabase>
+#include <QCoreApplication>
 
 //My
 #include "common.h"
@@ -46,12 +47,14 @@ public:
         @param logDBName - Название таблицы с логами
         @param debugMode - включит/выключить режим отладки. В режиме отладки в консоль перенаправляются все сообщения,
             поступающие в логер, в обычном режиме - только сообщения об ошибках
+        @param sender - название сервиса отправителя логов
         @param parent - указатель на родительский класс
         @return указатель на глобальный логер. Возвращется гарантированно не nullptr
     */
     static TDBLoger* DBLoger(const DBConnectionInfo& DBConnectionInfo = {},
                              const QString& logDBName = "Log",
                              bool debugMode = true,
+                             const QString& sender = QCoreApplication::applicationName(),
                              QObject* parent = nullptr);
 
     /*!
@@ -70,7 +73,7 @@ public:
     /*!
         Деструктор
     */
-    ~TDBLoger();
+    ~TDBLoger() override;
 
     /*!
         Возвращает true если при выполнении последнего действия произошла ошибка
@@ -84,7 +87,23 @@ public:
     */
     [[nodiscard]] QString errorString();
 
+signals:
+    /*!
+        Сигнал при фатальной ошибка при работе с БД (не удалось подключится или выполнить запрос и т.п.
+        @param errorCode - код ошибки
+        @param errorString - текстовое описание ошибки
+    */
+    void errorOccurred(Common::EXIT_CODE errorCode, const QString& errorString);
+
 public slots:
+    /*!
+        Записывает сообщение в лог. Если сообшение не удалось записать в БД, оно будет сохранено в LOG-файй
+            Если не планируется использовать Сигнал/Слот, просто используйте даннй метод как метод
+        @param category - категория сообщения
+        @param msg - сообщение
+     */
+    void sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& msg); //Сохранения логов
+
     /*!
         Начать работу логера. Этот метод должен быть вызывн до первого вызова sendLogMsg().
             В этом методе происходит подключение к БД. Если не планируется использоавть. В сслучае
@@ -105,11 +124,13 @@ private:
         @param logDBName - Название таблицы с логами
         @param debugMode - включит/выключить режим отладки. В режиме отладки в консоль перенаправляются все сообщения,
             поступающие в логер, в обычном режиме - только сообщения об ошибках
+        @param sender - название сервиса отправителя логов
         @param parent - указатель на родительский класс
      */
     TDBLoger(const DBConnectionInfo& DBConnectionInfo,
              const QString& logDBName,
              bool debugMode,
+             const QString& sender,
              QObject* parent = nullptr);
 
     /*!
@@ -117,38 +138,10 @@ private:
     */
     void clearOldLog();
 
-    using QueueMessages = std::queue<QString>; ///< Очередь запросов к БД
-    using PQueueMessages = std::unique_ptr<QueueMessages>;///< Указатель на очередь запросов к БД
-
     /*!
         Сохраянет очередь запросов к БД в БД
-        @param db ссылка на БД
-        @param queueMessages - очередь запросов
-        @return nullopt в случае успеха или строку с описанием ошибки
     */
-    static std::optional<QString> saveToDB(QSqlDatabase& db, PQueueMessages queueMessages);
-
-    /*!
-        Проверяет результаты сохранения очереди сообщений в БД
-    */
-    void checkResult();
-
-signals:
-    /*!
-        Сигнал при фатальной ошибка при работе с БД (не удалось подключится или выполнить запрос и т.п.
-        @param errorCode - код ошибки
-        @param errorString - текстовое описание ошибки
-    */
-    void errorOccurred(Common::EXIT_CODE errorCode, const QString& errorString);
-
-public slots:
-    /*!
-        Записывает сообщение в лог. Если сообшение не удалось записать в БД, оно будет сохранено в LOG-файй
-            Если не планируется использовать Сигнал/Слот, просто используйте даннй метод как метод
-        @param category - категория сообщения
-        @param msg - сообщение
-     */
-    void sendLogMsg(Common::TDBLoger::MSG_CODE category, const QString& msg); //Сохранения логов
+    void saveToDB();
 
 private:
     const DBConnectionInfo _dbConnectionInfo;   ///< Параметры подключения к БД
@@ -157,8 +150,9 @@ private:
 
     QSqlDatabase _db;                           ///< БД
 
-    PQueueMessages _queueMessages;              ///<  - очередь сообщений к БД
-    std::future<std::optional<QString>> _saveResult;  ///< результат хранения очереди сообщений
+    const QString _sender;                      ///< Название приложение отправителя логов
+
+    std::queue<QString> _queueMessages;         ///< Очередь сообщений к БД
 
     QString _errorString;                       ///< Текст последней ошибки
 

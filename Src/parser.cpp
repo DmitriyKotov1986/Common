@@ -264,7 +264,7 @@ QJsonObject Common::JSONReadMap(const QJsonValue &json, const QString &path)
 
 QJsonArray Common::JSONReadArray(const QJsonValue &json, const QString &path)
 {
-    if (json.isArray())
+    if (!json.isArray())
     {
         throw ParseException(QString("Invalid value of key (%1). JSON value is not JSON array").arg(path));
     }

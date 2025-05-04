@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <optional>
 #include <limits>
+#include <cmath>
 
 //Qt
 #include <QString>
@@ -21,7 +22,7 @@ namespace Common
 ///////////////////////////////////////////////////////////////////////////////
 ///     Вспомогательный класс ошибки парсинга ParseException
 ///
-class ParseException
+class ParseException final
     : public std::runtime_error
 {
 public:
@@ -33,6 +34,8 @@ public:
         : std::runtime_error(what.toStdString())
     {
     }
+
+    ~ParseException() override = default;
 
 private:
     // Удаляем неиспользуемые конструторы
@@ -159,7 +162,7 @@ std::optional<TNumber> JSONReadNumber(const QJsonValue& json, const QString& pat
         return {};
     }
 
-    if (!json.isDouble())
+    if (!json.isDouble() && !json.isString())
     {
         throw ParseException(QString("Value is not number (%1). Value must be number between [%2, %3]")
             .arg(path)
@@ -167,7 +170,23 @@ std::optional<TNumber> JSONReadNumber(const QJsonValue& json, const QString& pat
             .arg(maxValue));
     }
 
-    const auto result = static_cast<TNumber>(json.toDouble());
+    double result = NAN;
+    if (json.isDouble())
+    {
+        result = static_cast<TNumber>(json.toDouble());
+    }
+    else
+    {
+        bool ok = false;
+        result = static_cast<TNumber>(json.toString().toDouble(&ok));
+        if (!ok)
+        {
+            throw ParseException(QString("Value is not number (%1). Value must be number between [%2, %3]")
+                                     .arg(path)
+                                     .arg(minValue)
+                                     .arg(maxValue));
+        }
+    }
 
     if (result < minValue || result > maxValue)
     {

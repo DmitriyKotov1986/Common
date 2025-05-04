@@ -1,7 +1,3 @@
-//STL
-#include <unordered_map>
-#include <memory>
-
 //Qt
 #include <QString>
 #include <QFile>
@@ -168,19 +164,22 @@ void Common::messageOutput(QtMsgType type, const QMessageLogContext &context, co
     }
 #ifdef QT_DEBUG
     {
-        stringPrefix += QString(" %3:%4:%5")
-                .arg(context.file)
-                .arg(context.line)
-                .arg(context.function);
+        if (DEBUG_MODE || type != QtDebugMsg)
+        {
+            stringPrefix += QString(" %3:%4:%5")
+                    .arg(context.file)
+                    .arg(context.line)
+                    .arg(context.function);
 
-        static QMutex mutex;
-        auto locker = QMutexLocker(&mutex);
+            static QMutex mutex;
+            auto locker = QMutexLocker(&mutex);
 
-        QTextStream ss(stderr);
-        ss << QString("%1 %2 %3\n")
-              .arg(QTime::currentTime().toString(SIMPLY_TIME_FORMAT))
-              .arg(stringPrefix)
-              .arg(msg);
+            QTextStream ss(stderr);
+            ss << QString("%1 %2 %3\n")
+                  .arg(QTime::currentTime().toString(SIMPLY_TIME_FORMAT))
+                  .arg(stringPrefix)
+                  .arg(msg);
+        }
     }
 #else
     {
